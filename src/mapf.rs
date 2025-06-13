@@ -1,0 +1,497 @@
+use crate::mapf::MAPFAction::{Commit, Move};
+use crate::sparse::SparseMatrix2D;
+use crate::state_definition::StateEnvironment;
+use std::fmt;
+use std::fmt::{Debug, Formatter};
+use std::hash::{Hash, Hasher};
+use std::sync::Arc;
+use std::fs;
+use std::path::Path;
+use std::error::Error;
+
+pub const MOVES: [(isize, isize); 4] = [
+    (0, 1),
+    (1, 0),
+    (0, -1),
+    (-1, 0),
+];
+
+#[derive(Debug)]
+pub struct MAPFDefinition {
+    pub shape: (usize, usize),
+    pub starting_positions: SparseMatrix2D,
+    pub obstacles: SparseMatrix2D,
+    pub goals: SparseMatrix2D,
+}
+
+#[derive(Clone)]
+pub struct MAPFState {
+    pub definition: Arc<MAPFDefinition>,
+
+    pub stage0_positions: SparseMatrix2D,
+    pub stage1_positions: SparseMatrix2D,
+    pub stage2_positions: SparseMatrix2D,
+
+    pub playing: u8,
+}
+
+#[derive(Clone)]
+pub enum MAPFAction {
+    Commit,
+    Move((usize, usize), (usize, usize)),
+}
+
+impl PartialEq for MAPFState {
+    fn eq(&self, other: &Self) -> bool {
+        self.stage1_positions == other.stage1_positions &&
+            self.stage2_positions == other.stage2_positions &&
+            self.stage0_positions == other.stage0_positions &&
+            self.playing == other.playing
+    }
+}
+
+impl Eq for MAPFState {}
+
+impl Hash for MAPFState {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.stage1_positions.hash(state);
+        self.stage2_positions.hash(state);
+        self.stage0_positions.hash(state);
+        self.playing.hash(state);
+    }
+}
+
+impl Debug for MAPFState {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MAPFState")
+            .field("playing", &self.playing)
+            .field("stage0_positions", &self.stage0_positions.get_nnz())
+            .field("stage1_positions", &self.stage1_positions.get_nnz())
+            .field("stage2_positions", &self.stage2_positions.get_nnz())
+            .finish()
+    }
+}
+
+impl fmt::Display for MAPFState {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+
+        for a0_idx in 0 .. self.definition.shape.0 {
+            for a1_idx in 0 .. self.definition.shape.1 {
+
+                if self.definition.obstacles.get(a0_idx, a1_idx).unwrap_or(0) != 0 {
+                    write!(f, "# ")?;
+                }
+                else if self.stage1_positions.get(a0_idx, a1_idx).unwrap_or(0) != 0 {
+                    write!(f, "{} ", self.stage1_positions.get_checked(a0_idx, a1_idx))?;
+                }
+                else if self.stage2_positions.get(a0_idx, a1_idx).unwrap_or(0) != 0 {
+                    write!(f, "{}*", self.stage2_positions.get_checked(a0_idx, a1_idx))?;
+                }
+                else {
+                    write!(f, ". ")?;
+                }
+            }
+            write!(f, "\n")?;
+        }
+
+        write!(f, "\n")?;
+
+        Ok(())
+    }
+}
+
+pub struct MAPFEnvironment {
+    pub definition: Arc<MAPFDefinition>,
+}
+
+impl MAPFEnvironment {
+    pub fn new() -> Self {
+        Self {
+            definition: Arc::new(MAPFDefinition{
+                shape: (10, 10),
+                starting_positions:
+                    SparseMatrix2D {
+                        data: vec![
+                            None, //0
+                            None, //1
+                            None, //2
+                            Some(vec![1, 0, 0, 0, 0, 0, 0, 0, 0, 2]), //3
+                            Some(vec![1, 0, 0, 0, 0, 0, 0, 0, 0, 2]), //4
+                            Some(vec![1, 0, 0, 0, 0, 0, 0, 0, 0, 2]), //5
+                            None, //6
+                            None, //7
+                            None, //8
+                            None, //9
+                       ],
+                        shape: (10, 10),
+                    },
+                obstacles: {
+                        SparseMatrix2D {
+                            data: vec![
+                                None, //0
+                                None, //1
+                                None, //2
+                                Some(vec![0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0]), //3
+                                Some(vec![0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0]), //4
+                                Some(vec![0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0]), //5
+                                None, //6
+                                None, //7
+                                None, //8
+                                None, //9
+                            ],
+                            shape: (10, 10),
+                        }
+                },
+                goals: {
+                    SparseMatrix2D {
+                        data: vec![
+                            None, //0
+                            None, //1
+                            None, //2
+                            Some(vec![0, 0, 2, 0, 0, 0, 0, 0, 1, 0, 0]), //3
+                            Some(vec![0, 0, 2, 0, 0, 0, 0, 0, 1, 0, 0]), //4
+                            Some(vec![0, 0, 2, 0, 0, 0, 0, 0, 1, 0, 0]), //5
+                            None, //6
+                            None, //7
+                            None, //8
+                            None, //9
+                        ],
+                        shape: (10, 10)
+                    }
+                }
+            }),
+        }
+    }
+}
+
+impl StateEnvironment<MAPFState, MAPFAction> for MAPFEnvironment {
+
+    fn get_initial_state(&self) -> MAPFState {
+        MAPFState{
+            definition: self.definition.clone(),
+            stage0_positions: self.definition.starting_positions.clone(),
+            stage1_positions: self.definition.starting_positions.clone(),
+            stage2_positions: SparseMatrix2D::new(self.definition.shape.0, self.definition.shape.1),
+            playing: 1,
+        }
+    }
+
+    fn get_actions(&self, state: &MAPFState) -> Arc<Vec<MAPFAction>> {
+        let mut actions = Vec::new();
+
+        for (a0_idx, vec_) in state.stage1_positions.data.iter().enumerate() {
+            if let Some(vec) = vec_ {
+                for (a1_idx, unit) in vec.iter().enumerate(){
+
+                    if *unit == 0 {
+                        continue
+                    }
+
+                    for (da0, da1) in MOVES {
+                        let na0_ = (da0) + (a0_idx as isize);
+                        let na1_ = (da1) + (a1_idx as isize);
+
+                        if na0_ < 0 || na0_ >= self.definition.shape.1 as isize {
+                            continue;
+                        }
+
+                        if na1_ < 0 || na1_ >= self.definition.shape.0 as isize {
+                            continue;
+                        }
+
+                        let na0 = na0_ as usize;
+                        let na1 = na1_ as usize;
+
+                        let obstacle = self.definition.obstacles.get(na0, na1);
+
+                        if obstacle.unwrap_or(0) != 0 {
+                            continue;
+                        }
+
+                        actions.push(Move((a0_idx, a1_idx), (na0, na1)));
+                    }
+                }
+            }
+        }
+
+        actions.push(Commit);
+
+        Arc::new(actions)
+    }
+
+    fn next(&self, s: &MAPFState, a: &MAPFAction) -> MAPFState {
+
+        match a {
+            Commit => {
+                let mut next_starting_pos = s.stage1_positions.xor(&s.stage2_positions);
+                MAPFState{
+                    definition: s.definition.clone(),
+                    stage0_positions: next_starting_pos.clone(),
+                    stage1_positions: next_starting_pos,
+                    stage2_positions: SparseMatrix2D::new_by_shape(self.definition.shape),
+                    playing: if s.playing == 0 {1} else {0},
+                }
+            }
+            Move(stage1, stage2) => {
+                let mut stage1_positions = s.stage1_positions.clone();
+                stage1_positions.xor_inline_by_idx(stage1.0, stage1.1, s.playing);
+
+                let mut stage2_positions = s.stage2_positions.clone();
+                stage2_positions.xor_inline_by_idx(stage2.0, stage2.1, s.playing);
+
+
+                MAPFState{
+                    definition: self.definition.clone(),
+                    stage0_positions: s.stage0_positions.clone(),
+                    stage1_positions,
+                    stage2_positions,
+                    playing: s.playing,
+                }
+            }
+        }
+
+    }
+
+    fn is_finished(&self, s: &MAPFState) -> bool {
+        todo!()
+    }
+
+    fn get_heuristic(&self) -> f64 {
+        todo!()
+    }
+}
+
+
+#[derive(Debug)]
+pub struct ParseGridError(pub String);
+
+impl fmt::Display for ParseGridError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "ParseGridError: {}", self.0)
+    }
+}
+
+
+impl fmt::Display for MAPFEnvironment {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let MAPFDefinition {
+            shape: (width, height),
+            starting_positions,
+            obstacles,
+            goals,
+        } = &*self.definition;
+
+        for y in 0..*height {
+            for x in 0..*width {
+                let mut ch = '.';
+
+                if let Some(Some(row)) = obstacles.data.get(y) {
+                    if row.get(x).copied().unwrap_or(0) == 1 {
+                        ch = '#';
+                    }
+                }
+
+                if ch == '.' {
+                    if let Some(Some(row)) = starting_positions.data.get(y) {
+                        if let Some(&val) = row.get(x) {
+                            if val != 0 {
+                                ch = std::char::from_digit(val as u32, 10).unwrap_or('?');
+                            }
+                        }
+                    }
+                }
+
+                if ch == '.' {
+                    if let Some(Some(row)) = goals.data.get(y) {
+                        if let Some(&val) = row.get(x) {
+                            if val != 0 {
+                                ch = ((val - 1 + b'A') as char);
+                            }
+                        }
+                    }
+                }
+
+                write!(f, "{}", ch)?;
+            }
+            writeln!(f)?;
+        }
+
+        Ok(())
+    }
+}
+
+
+impl Error for ParseGridError {}
+
+impl MAPFEnvironment {
+    pub fn new_from_file<P: AsRef<Path>>(path: P) -> Result<Self, Box<dyn Error>> {
+        let content = fs::read_to_string(path)?;
+        let mut obstacles_data: Vec<Option<Vec<u8>>> = Vec::new();
+        let mut starting_data: Vec<Option<Vec<u8>>> = Vec::new();
+        let mut goals_data: Vec<Option<Vec<u8>>> = Vec::new();
+
+        let lines: Vec<&str> = content
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .collect();
+
+        if lines.is_empty() {
+            return Err(Box::new(ParseGridError("Empty grid".to_string())));
+        }
+
+        let width = lines[0].len();
+        let height = lines.len();
+
+        for (y, line) in lines.iter().enumerate() {
+            if line.len() != width {
+                return Err(Box::new(ParseGridError(format!(
+                    "Inconsistent row width at line {}",
+                    y
+                ))));
+            }
+
+            let mut obstacle_row = vec![0u8; width];
+            let mut starting_row = vec![0u8; width];
+            let mut goals_row = vec![0u8; width];
+
+            let mut has_obstacle = false;
+            let mut has_starting = false;
+            let mut has_goals = false;
+
+            for (x, ch) in line.chars().enumerate() {
+                match ch {
+                    '.' => {}
+                    '#' => {
+                        obstacle_row[x] = 1;
+                        has_obstacle = true;
+                    }
+                    '0'..='9' => {
+                        starting_row[x] = ch.to_digit(10).unwrap() as u8;
+                        has_starting = true;
+                    }
+                    'A'..='Z' => {
+                        goals_row[x] = (ch as u8 - b'A') + 1;
+                        has_goals = true;
+                    }
+                    _ => {
+                        return Err(Box::new(ParseGridError(format!(
+                            "Invalid character '{}' at ({},{})",
+                            ch, x, y
+                        ))));
+                    }
+                }
+            }
+
+            obstacles_data.push(if has_obstacle { Some(obstacle_row) } else { None });
+            starting_data.push(if has_starting { Some(starting_row) } else { None });
+            goals_data.push(if has_goals { Some(goals_row) } else { None });
+        }
+
+        Ok(Self {
+            definition: Arc::new(MAPFDefinition {
+                shape: (width, height),
+                starting_positions: SparseMatrix2D {
+                    data: starting_data,
+                    shape: (width, height),
+                },
+                obstacles: SparseMatrix2D {
+                    data: obstacles_data,
+                    shape: (width, height),
+                },
+                goals: SparseMatrix2D {
+                    data: goals_data,
+                    shape: (width, height),
+                },
+            }),
+        })
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use crate::mapf::{MAPFAction, MAPFEnvironment};
+    use crate::state_definition::StateEnvironment;
+
+    #[test]
+    fn test_init(){
+        let problem = MAPFEnvironment::new();
+        problem.get_initial_state();
+    }
+
+    #[test]
+    fn test_move(){
+        let problem = MAPFEnvironment::new();
+        let initial = problem.get_initial_state();
+
+        let action = MAPFAction::Move((3, 0), (3, 1));
+
+        let next = problem.next(&initial, &action);
+
+        assert_eq!(next.stage1_positions.get(3, 0).unwrap(), 0);
+        assert_eq!(next.stage1_positions.get(3, 1).unwrap(), 0);
+
+        assert_eq!(next.stage2_positions.get(3, 0).unwrap(), 0);
+        assert_eq!(next.stage2_positions.get(3, 1).unwrap(), 1);
+
+        println!("{}", next.to_string());
+    }
+
+    #[test]
+    fn test_load_maps() {
+        use std::fs;
+        use std::path::Path;
+
+        let dir = Path::new("./maps/");
+        for entry in fs::read_dir(dir).expect("Failed to read ./maps/") {
+
+            let path = entry.expect("Failed to read dir entry").path();
+            if path.extension().and_then(|s| s.to_str()) == Some("txt") {
+                let result = MAPFEnvironment::new_from_file(&path);
+                assert!(
+                    result.is_ok(),
+                    "Failed to load map {:?}: {:?}",
+                    path,
+                    result.err()
+                );
+
+                println!("Read {} ok", path.to_string_lossy());
+                let rendered = format!("{}", result.unwrap());
+                println!("See: \n{}", rendered);
+            }
+
+        }
+    }
+
+    #[test]
+    fn test_map_round_trip() {
+        use std::fs;
+        use std::path::Path;
+
+        let dir = Path::new("./maps/");
+        for entry in fs::read_dir(dir).expect("Failed to read ./maps/") {
+            let path = entry.expect("Failed to read dir entry").path();
+            if path.extension().and_then(|s| s.to_str()) == Some("txt") {
+                let original = fs::read_to_string(&path).expect("Failed to read file");
+                let env = MAPFEnvironment::new_from_file(&path).expect("Failed to parse map");
+                let rendered = format!("{}", env);
+
+                let normalize = |s: &str| {
+                    s.lines()
+                        .map(str::trim_end)
+                        .filter(|l| !l.is_empty())
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                };
+
+                assert_eq!(
+                    normalize(&original),
+                    normalize(&rendered),
+                    "Mismatch on map {:?}",
+                    path
+                );
+            }
+        }
+    }
+}
