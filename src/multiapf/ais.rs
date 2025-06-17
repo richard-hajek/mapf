@@ -1,11 +1,9 @@
 use crate::mapflib::state_definition::StateEnvironment;
 use crate::multiapf::mapf::{MAPFAction, MAPFEnvironment, MAPFState, MOVES};
-use rand::rng;
-use rand::rngs::ThreadRng;
-use rand::seq::IndexedRandom;
-use std::collections::{VecDeque};
-use std::sync::Arc;
 use crate::multiapf::mapf::MAPFAction::Move;
+use rand::{rng, rngs::ThreadRng, seq::IndexedRandom};
+use std::collections::VecDeque;
+use std::sync::Arc;
 
 pub trait AI {
     fn next(self: &mut Self, s: &MAPFState, e: &MAPFEnvironment) -> MAPFAction;

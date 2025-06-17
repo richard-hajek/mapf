@@ -2,13 +2,14 @@ use crate::mapflib::sparse::SparseMatrix2D;
 use crate::mapflib::state_definition::{StateEnvironment, StateStatus};
 use crate::multiapf::mapf::MAPFAction::{Commit, Move};
 use derive_more::Display;
-use std::error::Error;
-use std::fmt;
-use std::fmt::{Debug, Formatter};
-use std::fs;
-use std::hash::{Hash, Hasher};
-use std::path::Path;
-use std::sync::Arc;
+use std::{
+    error::Error,
+    fmt::{self, Debug, Formatter},
+    fs,
+    hash::{Hash, Hasher},
+    path::Path,
+    sync::Arc,
+};
 
 #[derive(Debug, Display)]
 pub struct ParseGridError(pub String);
@@ -212,11 +213,11 @@ impl StateEnvironment<MAPFState, MAPFAction> for MAPFEnvironment {
                 return StateStatus::Winner(i as u64);
             }
         }
-        
+
         if alive[1] == 0 {
             return StateStatus::Winner(2);
         }
-        
+
         if alive[2] == 0 {
             return StateStatus::Winner(1);
         }

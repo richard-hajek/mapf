@@ -1,18 +1,16 @@
 #![feature(duration_constructors_lite)]
 #![feature(unboxed_closures)]
 
-use multiapf::ais::RandomAI;
-use multiapf::loops::{args, evaluate_ai, EvaluateAIParams};
-use multiapf::mapf::MAPFEnvironment;
-use crate::multiapf::ais::GreedyAI;
-use crate::multiapf::loops::{gather, GatherArgs};
+use crate::multiapf::ais::{GreedyAI, RandomAI};
+use crate::multiapf::loops::{args, evaluate_ai, EvaluateAIParams, gather, GatherArgs};
+use crate::multiapf::mapf::MAPFEnvironment;
 
 mod mapflib;
 mod multiapf;
 
 fn main() {
     println!("Hello, world!");
-    
+
     let env = MAPFEnvironment::new_from_file("./maps/defender.txt").unwrap();
     let r = evaluate_ai(&env, 
                         vec![Box::new(GreedyAI::new()), Box::new(RandomAI::new())], 
