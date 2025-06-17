@@ -26,13 +26,15 @@ macro_rules! args {
         params
     }};
 }
+
 pub(crate) use args;
 use crate::mapflib::state_definition::{StateEnvironment, StateStatus};
 
 
 pub struct EvaluateAIParams {
     timeout: Duration,
-    max_iters: u64,
+    pub(crate) max_iters: u64,
+    pub(crate) verbose: bool,
 }
 
 impl Default for EvaluateAIParams {
@@ -40,6 +42,7 @@ impl Default for EvaluateAIParams {
         EvaluateAIParams{
             timeout: Duration::from_mins(5),
             max_iters: 100_000,
+            verbose: false
         }
     }
 }
@@ -51,14 +54,23 @@ pub fn evaluate_ai(mapf: &MAPFEnvironment, mut actors: Vec<Box<dyn AI>>, params:
 
     for iteration in 0..params.max_iters {
         let playing = state.playing;
-        let action = actors[playing as usize].next(&state, &mapf);
+        let action = actors[(playing - 1) as usize].next(&state, &mapf);
         state = mapf.next(&state, &action);
+
+        if params.verbose {
+            println!("Player {} made {:?}", playing, action);
+        }
+
         if iteration % 1000 == 0 {
             println!("Iteration {}", iteration);
         }
 
         if let MAPFAction::Commit = action {
             let status = mapf.get_status(&state);
+
+            if params.verbose {
+                println!("Iteration {}:\n{}\n\n", iteration, state);
+            }
 
             if let StateStatus::Winner(w) = status {
                 return Ok(w);

@@ -5,6 +5,7 @@ use std::sync::Arc;
 pub enum StateStatus {
     Running,
     Winner(u64),
+    Draw,
 }
 
 pub(crate) trait StateEnvironment<S, A> {

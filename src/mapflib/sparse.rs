@@ -54,7 +54,13 @@ impl SparseMatrix2D {
 
     #[inline(always)]
     pub fn get_checked(&self, a0: usize, a1: usize) -> u8 {
-        self.data[a0].as_ref().expect("0th axis is None")[a1]
+        if a0 >= self.shape.0 || a1 >= self.shape.1 {
+            panic!("Index out of bounds: ({}, {}) is outside of shape {:?}", a0, a1, self.shape);
+        }
+        match &self.data[a0] {
+            Some(row) => row[a1],
+            None => 0,
+        }
     }
 
     pub fn xor_inline(&mut self, other: &SparseMatrix2D) {
@@ -138,5 +144,21 @@ impl SparseMatrix2D {
         }
 
         count
+    }
+
+    pub fn get_nnz_list(&self) -> Vec<(u64, u64)> {
+        let mut vec: Vec<(u64, u64)> = vec![];
+
+        for (a0_idx, row_opt) in self.data.iter().enumerate() {
+            if let Some(row) = row_opt {
+                for (a1_idx, &value) in row.iter().enumerate() {
+                    if value != 0 {
+                        vec.push((a0_idx as u64, a1_idx as u64));
+                    }
+                }
+            }
+        }
+
+        vec
     }
 }

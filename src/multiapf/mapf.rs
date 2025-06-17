@@ -37,7 +37,7 @@ pub struct MAPFState {
     pub playing: u8,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum MAPFAction {
     Commit,
     Move((usize, usize), (usize, usize)),
@@ -118,19 +118,19 @@ impl StateEnvironment<MAPFState, MAPFAction> for MAPFEnvironment {
         for (a0_idx, vec_) in state.stage1_positions.data.iter().enumerate() {
             if let Some(vec) = vec_ {
                 for (a1_idx, unit) in vec.iter().enumerate() {
-                    if *unit == 0 {
-                        continue;
+                    if *unit != state.playing {
+                        continue
                     }
 
                     for (da0, da1) in MOVES {
                         let na0_ = (da0) + (a0_idx as isize);
                         let na1_ = (da1) + (a1_idx as isize);
 
-                        if na0_ < 0 || na0_ >= self.definition.shape.1 as isize {
+                        if na0_ < 0 || na0_ >= self.definition.shape.0 as isize {
                             continue;
                         }
 
-                        if na1_ < 0 || na1_ >= self.definition.shape.0 as isize {
+                        if na1_ < 0 || na1_ >= self.definition.shape.1 as isize {
                             continue;
                         }
 
@@ -164,7 +164,7 @@ impl StateEnvironment<MAPFState, MAPFAction> for MAPFEnvironment {
                     stage0_positions: next_starting_pos.clone(),
                     stage1_positions: next_starting_pos,
                     stage2_positions: SparseMatrix2D::new_by_shape(self.definition.shape),
-                    playing: if s.playing == 0 { 1 } else { 0 },
+                    playing: if s.playing == 1 { 2 } else { 1 },
                 }
             }
             Move(stage1, stage2) => {
@@ -187,7 +187,8 @@ impl StateEnvironment<MAPFState, MAPFAction> for MAPFEnvironment {
 
     fn get_status(&self, s: &MAPFState) -> StateStatus {
         if s.stage2_positions.get_nnz_sum() != 0 {
-            panic!("Attempted to get status of a mid-turn game");
+            // If we're in the middle of a turn, the game is still running
+            return StateStatus::Running;
         }
 
         let mut alive: [u64; 3] = [0, 0, 0];
@@ -205,10 +206,26 @@ impl StateEnvironment<MAPFState, MAPFAction> for MAPFEnvironment {
             }
         }
 
-        for i in 0..3 {
-            if goals_achieved[i] == s.definition.goals_num[i] {
+        // Check for winners
+        for i in 1..3 {  // Start from 1 to skip the 0 index (no player)
+            if goals_achieved[i] == s.definition.goals_num[i] && s.definition.goals_num[i] > 0 {
                 return StateStatus::Winner(i as u64);
             }
+        }
+        
+        if alive[1] == 0 {
+            return StateStatus::Winner(2);
+        }
+        
+        if alive[2] == 0 {
+            return StateStatus::Winner(1);
+        }
+
+        let player1_can_win = goals_achieved[1] < s.definition.goals_num[1] && alive[1] > 0;
+        let player2_can_win = goals_achieved[2] < s.definition.goals_num[2] && alive[2] > 0;
+
+        if !player1_can_win && !player2_can_win {
+            return StateStatus::Draw;
         }
 
         StateStatus::Running
@@ -216,9 +233,9 @@ impl StateEnvironment<MAPFState, MAPFAction> for MAPFEnvironment {
 }
 
 impl fmt::Display for MAPFEnvironment {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let MAPFDefinition {
-            shape: (width, height),
+            shape: (height, width),
             starting_positions,
             obstacles,
             goals,
@@ -281,20 +298,20 @@ impl MAPFEnvironment {
             return Err(Box::new(ParseGridError("Empty grid".to_string())));
         }
 
-        let width = lines[0].len();
-        let height = lines.len();
+        let a1_length = lines[0].len();
+        let a0_length = lines.len();
 
         for (y, line) in lines.iter().enumerate() {
-            if line.len() != width {
+            if line.len() != a1_length {
                 return Err(Box::new(ParseGridError(format!(
                     "Inconsistent row width at line {}",
                     y
                 ))));
             }
 
-            let mut obstacle_row = vec![0u8; width];
-            let mut starting_row = vec![0u8; width];
-            let mut goals_row = vec![0u8; width];
+            let mut obstacle_row = vec![0u8; a1_length];
+            let mut starting_row = vec![0u8; a1_length];
+            let mut goals_row = vec![0u8; a1_length];
 
             let mut has_obstacle = false;
             let mut has_starting = false;
@@ -347,18 +364,18 @@ impl MAPFEnvironment {
 
         Ok(Self {
             definition: Arc::new(MAPFDefinition {
-                shape: (width, height),
+                shape: (a0_length, a1_length),
                 starting_positions: SparseMatrix2D {
                     data: starting_data,
-                    shape: (width, height),
+                    shape: (a0_length, a1_length),
                 },
                 obstacles: SparseMatrix2D {
                     data: obstacles_data,
-                    shape: (width, height),
+                    shape: (a0_length, a1_length),
                 },
                 goals: SparseMatrix2D {
                     data: goals_data,
-                    shape: (width, height),
+                    shape: (a0_length, a1_length),
                 },
                 goals_num: goals_by_player,
             }),
@@ -392,16 +409,16 @@ mod tests {
                     obstacles: {
                         SparseMatrix2D {
                             data: vec![
-                                None,                                        //0
-                                None,                                        //1
-                                None,                                        //2
-                                Some(vec![0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0]), //3
-                                Some(vec![0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0]), //4
-                                Some(vec![0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0]), //5
-                                None,                                        //6
-                                None,                                        //7
-                                None,                                        //8
-                                None,                                        //9
+                                None,                                     //0
+                                None,                                     //1
+                                None,                                     //2
+                                Some(vec![0, 0, 0, 0, 1, 1, 1, 0, 0, 0]), //3
+                                Some(vec![0, 0, 0, 0, 1, 1, 1, 0, 0, 0]), //4
+                                Some(vec![0, 0, 0, 0, 1, 1, 1, 0, 0, 0]), //5
+                                None,                                     //6
+                                None,                                     //7
+                                None,                                     //8
+                                None,                                     //9
                             ],
                             shape: (10, 10),
                         }
@@ -409,16 +426,16 @@ mod tests {
                     goals: {
                         SparseMatrix2D {
                             data: vec![
-                                None,                                        //0
-                                None,                                        //1
-                                None,                                        //2
-                                Some(vec![0, 0, 2, 0, 0, 0, 0, 0, 1, 0, 0]), //3
-                                Some(vec![0, 0, 2, 0, 0, 0, 0, 0, 1, 0, 0]), //4
-                                Some(vec![0, 0, 2, 0, 0, 0, 0, 0, 1, 0, 0]), //5
-                                None,                                        //6
-                                None,                                        //7
-                                None,                                        //8
-                                None,                                        //9
+                                None,                                     //0
+                                None,                                     //1
+                                None,                                     //2
+                                Some(vec![0, 0, 2, 0, 0, 0, 0, 0, 1, 0]), //3
+                                Some(vec![0, 0, 2, 0, 0, 0, 0, 0, 1, 0]), //4
+                                Some(vec![0, 0, 2, 0, 0, 0, 0, 0, 1, 0]), //5
+                                None,                                     //6
+                                None,                                     //7
+                                None,                                     //8
+                                None,                                     //9
                             ],
                             shape: (10, 10),
                         }
