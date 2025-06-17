@@ -7,6 +7,21 @@ pub struct SparseMatrix2D {
     pub shape: (usize, usize),
 }
 
+impl SparseMatrix2D {
+    pub(crate) fn bit_reduce_inline(&mut self) {
+        for i in 0..self.data.len() {
+            if let Some(ref mut vec) = self.data[i] {
+                for j in 0..vec.len() {
+                    let x = vec[j];
+                    if x.count_ones() > 1 {
+                        vec[j] = 0;
+                    }
+                }
+            }
+        }
+    }
+}
+
 impl fmt::Display for SparseMatrix2D {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         for vec in &self.data {
@@ -29,30 +44,29 @@ impl fmt::Display for SparseMatrix2D {
 }
 
 impl SparseMatrix2D {
-
     #[inline(always)]
     pub fn get(&self, a0: usize, a1: usize) -> Option<u8> {
-        self.data.get(a0)
+        self.data
+            .get(a0)
             .and_then(|vector| vector.as_ref())
             .and_then(|vector| vector.get(a1).copied())
     }
 
     #[inline(always)]
     pub fn get_checked(&self, a0: usize, a1: usize) -> u8 {
-        self.data[a0]
-            .as_ref()
-            .expect("0th axis is None")[a1]
+        self.data[a0].as_ref().expect("0th axis is None")[a1]
     }
 
     pub fn xor_inline(&mut self, other: &SparseMatrix2D) {
         for (a0_index, other_vec_opt) in other.data.iter().enumerate() {
-            if other_vec_opt.is_none() { continue; }
+            if other_vec_opt.is_none() {
+                continue;
+            }
             let vec = self.data[a0_index].get_or_insert_with(|| vec![0; self.shape.1]);
 
             for (a1_index, val) in other_vec_opt.as_ref().unwrap().iter().enumerate() {
                 vec[a1_index] ^= val;
             }
-
         }
     }
 
@@ -61,7 +75,7 @@ impl SparseMatrix2D {
         ret.xor_inline(other);
         ret
     }
-    
+
     pub fn xor_inline_by_idx(&mut self, a0: usize, a1: usize, val: u8) -> &mut SparseMatrix2D {
         self.insert(a0, a1, self.get(a0, a1).unwrap_or(0) ^ val);
         self
@@ -76,10 +90,6 @@ impl SparseMatrix2D {
 
     pub fn new_by_shape(shape: (usize, usize)) -> Self {
         Self::new(shape.0, shape.1)
-    }
-
-    pub fn new_like(other: &Self) -> Self {
-        Self::new_by_shape(other.shape)
     }
 }
 
@@ -112,5 +122,21 @@ impl SparseMatrix2D {
         }
 
         result
+    }
+
+    pub fn get_nnz_sum(&self) -> u64 {
+        let mut count: u64 = 0;
+
+        for (_, row_opt) in self.data.iter().enumerate() {
+            if let Some(row) = row_opt {
+                for (_, &value) in row.iter().enumerate() {
+                    if value != 0 {
+                        count += 1;
+                    }
+                }
+            }
+        }
+
+        count
     }
 }
