@@ -18,12 +18,5 @@ fn main() {
     let r = evaluate_ai(&env, 
                         vec![Box::new(GreedyAI::new()), Box::new(RandomAI::new())], 
                         args!(EvaluateAIParams, verbose: true, max_iters: 200));
-
-    // let many = || {
-    //     evaluate_ai(&env, vec![Box::new(GreedyAI::new()), Box::new(RandomAI::new())], args!(EvaluateAIParams,))
-    // };
-    // 
-    // let result = gather(many, args!(GatherArgs, loops: 20));
-
     println!("{:?}", r);
 }
