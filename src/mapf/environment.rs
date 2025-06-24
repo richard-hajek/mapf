@@ -1,102 +1,16 @@
-use crate::mapflib::sparse::SparseMatrix2D;
-use crate::mapflib::state_definition::{StateEnvironment, StateStatus};
-use crate::multiapf::mapf::MAPFAction::{Commit, Move};
-use derive_more::Display;
+use crate::deps::sparse::SparseMatrix2D;
+use crate::deps::state_definition::{StateEnvironment, StateStatus};
+use crate::mapf::action::MAPFAction::{Commit, Move};
+use crate::mapf::action::{MAPFAction, MOVES};
+use crate::mapf::definition::{MAPFDefinition, ParseGridError};
+use crate::mapf::state::MAPFState;
 use std::{
     error::Error,
-    fmt::{self, Debug, Formatter},
+    fmt::{self, Formatter},
     fs,
-    hash::{Hash, Hasher},
     path::Path,
     sync::Arc,
 };
-
-#[derive(Debug, Display)]
-pub struct ParseGridError(pub String);
-
-impl Error for ParseGridError {}
-
-pub const MOVES: [(isize, isize); 4] = [(0, 1), (1, 0), (0, -1), (-1, 0)];
-
-#[derive(Debug)]
-pub struct MAPFDefinition {
-    pub shape: (usize, usize),
-    pub starting_positions: SparseMatrix2D,
-    pub obstacles: SparseMatrix2D,
-    pub goals: SparseMatrix2D,
-    pub goals_num: [u64; 3],
-}
-
-#[derive(Clone)]
-pub struct MAPFState {
-    pub definition: Arc<MAPFDefinition>,
-
-    pub stage0_positions: SparseMatrix2D,
-    pub stage1_positions: SparseMatrix2D,
-    pub stage2_positions: SparseMatrix2D,
-
-    pub playing: u8,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum MAPFAction {
-    Commit,
-    Move((usize, usize), (usize, usize)),
-}
-
-impl PartialEq for MAPFState {
-    fn eq(&self, other: &Self) -> bool {
-        self.stage1_positions == other.stage1_positions
-            && self.stage2_positions == other.stage2_positions
-            && self.stage0_positions == other.stage0_positions
-            && self.playing == other.playing
-    }
-}
-
-impl Eq for MAPFState {}
-
-impl Hash for MAPFState {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.stage1_positions.hash(state);
-        self.stage2_positions.hash(state);
-        self.stage0_positions.hash(state);
-        self.playing.hash(state);
-    }
-}
-
-impl Debug for MAPFState {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("MAPFState")
-            .field("playing", &self.playing)
-            .field("stage0_positions", &self.stage0_positions.get_nnz())
-            .field("stage1_positions", &self.stage1_positions.get_nnz())
-            .field("stage2_positions", &self.stage2_positions.get_nnz())
-            .finish()
-    }
-}
-
-impl fmt::Display for MAPFState {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        for a0_idx in 0..self.definition.shape.0 {
-            for a1_idx in 0..self.definition.shape.1 {
-                if self.definition.obstacles.get(a0_idx, a1_idx).unwrap_or(0) != 0 {
-                    write!(f, "# ")?;
-                } else if self.stage1_positions.get(a0_idx, a1_idx).unwrap_or(0) != 0 {
-                    write!(f, "{} ", self.stage1_positions.get_checked(a0_idx, a1_idx))?;
-                } else if self.stage2_positions.get(a0_idx, a1_idx).unwrap_or(0) != 0 {
-                    write!(f, "{}*", self.stage2_positions.get_checked(a0_idx, a1_idx))?;
-                } else {
-                    write!(f, ". ")?;
-                }
-            }
-            write!(f, "\n")?;
-        }
-
-        write!(f, "\n")?;
-
-        Ok(())
-    }
-}
 
 pub struct MAPFEnvironment {
     pub definition: Arc<MAPFDefinition>,
@@ -106,9 +20,9 @@ impl StateEnvironment<MAPFState, MAPFAction> for MAPFEnvironment {
     fn get_initial_state(&self) -> MAPFState {
         MAPFState {
             definition: self.definition.clone(),
-            stage0_positions: self.definition.starting_positions.clone(),
-            stage1_positions: self.definition.starting_positions.clone(),
-            stage2_positions: SparseMatrix2D::new(self.definition.shape.0, self.definition.shape.1),
+            units_begin: self.definition.starting_positions.clone(),
+            units_available: self.definition.starting_positions.clone(),
+            units_moved: SparseMatrix2D::new(self.definition.shape.0, self.definition.shape.1),
             playing: 1,
         }
     }
@@ -116,7 +30,7 @@ impl StateEnvironment<MAPFState, MAPFAction> for MAPFEnvironment {
     fn get_actions(&self, state: &MAPFState) -> Arc<Vec<MAPFAction>> {
         let mut actions = Vec::new();
 
-        for (a0_idx, vec_) in state.stage1_positions.data.iter().enumerate() {
+        for (a0_idx, vec_) in state.units_available.data.iter().enumerate() {
             if let Some(vec) = vec_ {
                 for (a1_idx, unit) in vec.iter().enumerate() {
                     if *unit != state.playing {
@@ -158,28 +72,28 @@ impl StateEnvironment<MAPFState, MAPFAction> for MAPFEnvironment {
     fn next(&self, s: &MAPFState, a: &MAPFAction) -> MAPFState {
         match a {
             Commit => {
-                let mut next_starting_pos = s.stage1_positions.xor(&s.stage2_positions);
+                let mut next_starting_pos = s.units_available.xor(&s.units_moved);
                 next_starting_pos.bit_reduce_inline();
                 MAPFState {
                     definition: s.definition.clone(),
-                    stage0_positions: next_starting_pos.clone(),
-                    stage1_positions: next_starting_pos,
-                    stage2_positions: SparseMatrix2D::new_by_shape(self.definition.shape),
+                    units_begin: next_starting_pos.clone(),
+                    units_available: next_starting_pos,
+                    units_moved: SparseMatrix2D::new_by_shape(self.definition.shape),
                     playing: if s.playing == 1 { 2 } else { 1 },
                 }
             }
             Move(stage1, stage2) => {
-                let mut stage1_positions = s.stage1_positions.clone();
+                let mut stage1_positions = s.units_available.clone();
                 stage1_positions.xor_inline_by_idx(stage1.0, stage1.1, s.playing);
 
-                let mut stage2_positions = s.stage2_positions.clone();
+                let mut stage2_positions = s.units_moved.clone();
                 stage2_positions.xor_inline_by_idx(stage2.0, stage2.1, s.playing);
 
                 MAPFState {
                     definition: self.definition.clone(),
-                    stage0_positions: s.stage0_positions.clone(),
-                    stage1_positions,
-                    stage2_positions,
+                    units_begin: s.units_begin.clone(),
+                    units_available: stage1_positions,
+                    units_moved: stage2_positions,
                     playing: s.playing,
                 }
             }
@@ -187,7 +101,7 @@ impl StateEnvironment<MAPFState, MAPFAction> for MAPFEnvironment {
     }
 
     fn get_status(&self, s: &MAPFState) -> StateStatus {
-        if s.stage2_positions.get_nnz_sum() != 0 {
+        if s.units_moved.get_nnz_sum() != 0 {
             // If we're in the middle of a turn, the game is still running
             return StateStatus::Running;
         }
@@ -195,7 +109,7 @@ impl StateEnvironment<MAPFState, MAPFAction> for MAPFEnvironment {
         let mut alive: [u64; 3] = [0, 0, 0];
         let mut goals_achieved: [u64; 3] = [0, 0, 0];
 
-        for (a0_index, row_opt) in s.stage0_positions.data.iter().enumerate() {
+        for (a0_index, row_opt) in s.units_begin.data.iter().enumerate() {
             if let Some(row) = row_opt {
                 for (a1_index, &value) in row.iter().enumerate() {
                     alive[value as usize] += 1;
@@ -447,9 +361,11 @@ mod tests {
         }
     }
 
-    use crate::mapflib::sparse::SparseMatrix2D;
-    use crate::mapflib::state_definition::StateEnvironment;
-    use crate::multiapf::mapf::{MAPFAction, MAPFDefinition, MAPFEnvironment};
+    use crate::deps::sparse::SparseMatrix2D;
+    use crate::deps::state_definition::StateEnvironment;
+    use crate::mapf::action::MAPFAction;
+    use crate::mapf::definition::MAPFDefinition;
+    use crate::mapf::environment::MAPFEnvironment;
     use std::sync::Arc;
 
     #[test]
@@ -467,11 +383,11 @@ mod tests {
 
         let next = problem.next(&initial, &action);
 
-        assert_eq!(next.stage1_positions.get(3, 0).unwrap(), 0);
-        assert_eq!(next.stage1_positions.get(3, 1).unwrap(), 0);
+        assert_eq!(next.units_available.get(3, 0).unwrap(), 0);
+        assert_eq!(next.units_available.get(3, 1).unwrap(), 0);
 
-        assert_eq!(next.stage2_positions.get(3, 0).unwrap(), 0);
-        assert_eq!(next.stage2_positions.get(3, 1).unwrap(), 1);
+        assert_eq!(next.units_moved.get(3, 0).unwrap(), 0);
+        assert_eq!(next.units_moved.get(3, 1).unwrap(), 1);
 
         println!("{}", next.to_string());
 

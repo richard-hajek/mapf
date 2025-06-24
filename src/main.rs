@@ -1,12 +1,15 @@
 #![feature(duration_constructors_lite)]
 #![feature(unboxed_closures)]
 
-use crate::multiapf::ais::{GreedyAI, RandomAI};
-use crate::multiapf::loops::{args, evaluate_ai, EvaluateAIParams, gather, GatherArgs};
-use crate::multiapf::mapf::MAPFEnvironment;
+use crate::ai::greedy::GreedyAI;
+use crate::ai::random_ai::RandomAI;
+use crate::loops::{args, evaluate_ai, EvaluateAIParams};
+use crate::mapf::environment::MAPFEnvironment;
 
-mod mapflib;
-mod multiapf;
+mod deps;
+mod mapf;
+mod ai;
+pub mod loops;
 
 fn main() {
     println!("Hello, world!");

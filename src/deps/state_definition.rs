@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum StateStatus {
     Running,
     Winner(u64),

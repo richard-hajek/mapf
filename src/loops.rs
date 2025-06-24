@@ -1,8 +1,8 @@
 extern crate derive_more;
 
-use crate::mapflib::state_definition::{StateEnvironment, StateStatus};
-use crate::multiapf::ais::AI;
-use crate::multiapf::mapf::{MAPFAction, MAPFEnvironment};
+use crate::ai::AI;
+use crate::deps::state_definition::{StateEnvironment, StateStatus};
+use crate::mapf::environment::MAPFEnvironment;
 use derive_more::Display;
 use std::error::Error;
 use std::fmt::Debug;
@@ -27,7 +27,7 @@ macro_rules! args {
 }
 
 pub(crate) use args;
-
+use crate::mapf::action::MAPFAction;
 
 pub struct EvaluateAIParams {
     timeout: Duration,

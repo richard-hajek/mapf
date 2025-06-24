@@ -1,36 +1,11 @@
-use crate::mapflib::state_definition::StateEnvironment;
-use crate::multiapf::mapf::{MAPFAction, MAPFEnvironment, MAPFState, MOVES};
-use crate::multiapf::mapf::MAPFAction::Move;
-use rand::{rng, rngs::ThreadRng, seq::IndexedRandom};
+use crate::ai::AI;
+use crate::deps::state_definition::StateEnvironment;
+use crate::mapf::action::MAPFAction::Move;
+use crate::mapf::action::{MAPFAction, MOVES};
+use crate::mapf::environment::MAPFEnvironment;
+use crate::mapf::state::MAPFState;
 use std::collections::VecDeque;
 use std::sync::Arc;
-
-pub trait AI {
-    fn next(self: &mut Self, s: &MAPFState, e: &MAPFEnvironment) -> MAPFAction;
-}
-
-pub struct RandomAI {
-    rng: ThreadRng,
-}
-
-impl RandomAI {
-    pub fn new() -> RandomAI {
-        RandomAI { rng: rng() }
-    }
-}
-
-impl AI for RandomAI {
-    fn next(self: &mut Self, s: &MAPFState, e: &MAPFEnvironment) -> MAPFAction
-    where
-        Self: Sized,
-    {
-        let actions = e.get_actions(s);
-        actions
-            .choose(&mut self.rng)
-            .cloned()
-            .expect("No available actions")
-    }
-}
 
 pub struct GreedyAI {
     grid: Arc<Option<Vec<Vec<i64>>>>,
@@ -125,9 +100,11 @@ impl AI for GreedyAI {
 
 #[cfg(test)]
 mod tests {
-    use crate::mapflib::state_definition::StateEnvironment;
-    use crate::multiapf::ais::{GreedyAI, AI};
-    use crate::multiapf::mapf::{MAPFAction, MAPFEnvironment};
+    use crate::ai::greedy::GreedyAI;
+    use crate::ai::AI;
+    use crate::deps::state_definition::StateEnvironment;
+    use crate::mapf::action::MAPFAction;
+    use crate::mapf::environment::MAPFEnvironment;
 
     #[test]
     fn test_ai_greedy(){
