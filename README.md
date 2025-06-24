@@ -4,9 +4,9 @@ A Rust implementation of Adversarial Multi-Agent Path Finding (ACPF) algorithms 
 
 ## Overview
 
-This project provides a framework for solving Multi-Agent Path Finding problems, where multiple agents need to navigate from their starting positions to goal positions while avoiding obstacles and collisions. The project currently includes:
+This project provides a framework for solving Adversarial Multi-Agent Path Finding problems, where multiple agents need to navigate from their starting positions to goal positions while avoiding obstacles and collisions. The project currently includes:
 
-- A grid-based MAPF environment
+- A grid-based ACPF environment
 - Multiple AI implementations with varying levels of sophistication
 - Utilities for evaluating and comparing AI performance
 
