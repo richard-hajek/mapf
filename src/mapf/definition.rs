@@ -1,11 +1,5 @@
 use crate::deps::sparse::SparseMatrix2D;
-use derive_more::Display;
-use std::error::Error;
 
-#[derive(Debug, Display)]
-pub struct ParseGridError(pub String);
-
-impl Error for ParseGridError {}
 
 #[derive(Debug)]
 pub struct MAPFDefinition {

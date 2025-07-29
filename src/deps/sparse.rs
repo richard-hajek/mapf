@@ -162,3 +162,127 @@ impl SparseMatrix2D {
         vec
     }
 }
+
+pub struct SparseMatrixFullIter<'a> {
+    matrix_data: &'a SparseMatrix2D,
+    idx0: usize,
+    idx1: usize,
+}
+
+impl<'a> Iterator for SparseMatrixFullIter<'a> {
+    type Item = ((usize, usize), u8);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.idx0 >= self.matrix_data.shape.0 || self.idx1 >= self.matrix_data.shape.1 {
+            return None
+        }
+
+        let (cidx0, cidx1) = (self.idx0, self.idx1);
+        let next = self.matrix_data.get(self.idx0, self.idx1).unwrap_or(0);
+
+        self.idx0 += 1;
+
+        if self.idx0 >= self.matrix_data.shape.0 {
+            self.idx0 = 0;
+            self.idx1 += 1;
+        }
+
+        Some(((cidx0, cidx1), next))
+    }
+}
+
+impl<'a> SparseMatrixFullIter<'a> {
+
+    fn next_sparse(&mut self) -> Option<<SparseMatrixFullIter<'a> as Iterator>::Item> {
+        if self.idx0 >= self.matrix_data.shape.0 || self.idx1 >= self.matrix_data.shape.1 {
+            return None
+        }
+
+        let (cidx0, cidx1) = (self.idx0, self.idx1);
+        let mut next = 0;
+
+        loop {
+
+            self.idx0 += 1;
+
+            if self.idx0 >= self.matrix_data.shape.0 {
+                self.idx0 = 0;
+                self.idx1 += 1;
+            }
+
+            if self.idx1 >= self.matrix_data.shape.1 {
+                break;
+            }
+
+            let val = self.matrix_data.get(self.idx0, self.idx1).unwrap_or(0);
+
+            if val != 0 {
+                next = val;
+                break;
+            }
+        }
+
+        if next == 0 {
+            return None
+        }
+
+        Some(((cidx0, cidx1), next))
+    }
+}
+
+pub struct SparseMatrixSparseIter<'a>(pub SparseMatrixFullIter<'a>);
+
+impl<'a> Iterator for SparseMatrixSparseIter<'a> {
+    type Item = ((usize, usize), u8);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next_sparse()
+    }
+}
+
+impl SparseMatrix2D {
+    pub fn iter_full(&self) -> SparseMatrixFullIter {
+        SparseMatrixFullIter {
+            matrix_data: &self,
+            idx0: 0,
+            idx1: 0,
+        }
+    }
+
+    pub fn iter_sparse(&self) -> SparseMatrixSparseIter {
+        SparseMatrixSparseIter (
+            SparseMatrixFullIter {
+                matrix_data: &self,
+                idx1: 0,
+                idx0: 0
+            }
+        )
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use crate::deps::sparse::SparseMatrix2D;
+
+    #[test]
+    fn test_iter(){
+        let mut m = SparseMatrix2D::new_by_shape((10, 20));
+
+        for i in 0u8..10u8 {
+            m.insert(i as usize, i as usize, i*i);
+        }
+
+        println!("ITER FULL");
+
+        for ((a0, a1), val) in m.iter_full() {
+            println!("{a0}, {a1} = {val}")
+        }
+
+        println!("ITER SPARSE");
+
+        for ((a0, a1), val) in m.iter_sparse(){
+            println!("{a0}, {a1} = {val}")
+        }
+    }
+}

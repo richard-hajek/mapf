@@ -1,9 +1,10 @@
 use crate::deps::sparse::SparseMatrix2D;
 use crate::mapf::definition::MAPFDefinition;
+use crate::mapf::state::SpecialState::No;
+use derive_more::Display;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
-use std::ptr::write;
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -15,10 +16,23 @@ pub struct MAPFState {
     pub units_moved: SparseMatrix2D,
 
     pub playing: u8,
+
+    pub special_state: SpecialState
+}
+
+#[derive(Clone, PartialOrd, PartialEq, Hash, Debug, Display)]
+pub enum SpecialState {
+    No,
+    AnyGoal,
 }
 
 impl PartialEq for MAPFState {
     fn eq(&self, other: &Self) -> bool {
+
+        if self.special_state != No || other.special_state != No {
+            return self.special_state == other.special_state;
+        }
+
         self.units_available == other.units_available
             && self.units_moved == other.units_moved
             && self.units_begin == other.units_begin
@@ -30,6 +44,12 @@ impl Eq for MAPFState {}
 
 impl Hash for MAPFState {
     fn hash<H: Hasher>(&self, state: &mut H) {
+
+        if self.special_state != No {
+            self.special_state.hash(state);
+            return;
+        }
+
         self.units_available.hash(state);
         self.units_moved.hash(state);
         self.units_begin.hash(state);
@@ -39,11 +59,13 @@ impl Hash for MAPFState {
 
 impl Debug for MAPFState {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+
         f.debug_struct("MAPFState")
             .field("playing", &self.playing)
             .field("stage0_positions", &self.units_begin.get_nnz())
             .field("stage1_positions", &self.units_available.get_nnz())
             .field("stage2_positions", &self.units_moved.get_nnz())
+            .field("special_state", &self.special_state)
             .finish()
     }
 }

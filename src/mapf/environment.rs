@@ -2,15 +2,12 @@ use crate::deps::sparse::SparseMatrix2D;
 use crate::deps::state_definition::{StateEnvironment, StateStatus};
 use crate::mapf::action::MAPFAction::{Commit, Move};
 use crate::mapf::action::{MAPFAction, MOVES};
-use crate::mapf::definition::{MAPFDefinition, ParseGridError};
+use crate::mapf::definition::MAPFDefinition;
+use crate::mapf::environment::MAPFErrorLoad::{EmptyGrid, InconsistentGrid, InvalidCharacter};
 use crate::mapf::state::MAPFState;
-use std::{
-    error::Error,
-    fmt::{self, Formatter},
-    fs,
-    path::Path,
-    sync::Arc,
-};
+use crate::mapf::state::SpecialState::{AnyGoal, No};
+use std::{fmt::{self, Formatter}, fs, io, path::Path, sync::Arc};
+use thiserror::Error;
 
 pub struct MAPFEnvironment {
     pub definition: Arc<MAPFDefinition>,
@@ -24,10 +21,16 @@ impl StateEnvironment<MAPFState, MAPFAction> for MAPFEnvironment {
             units_available: self.definition.starting_positions.clone(),
             units_moved: SparseMatrix2D::new(self.definition.shape.0, self.definition.shape.1),
             playing: 1,
+            special_state: No,
         }
     }
 
     fn get_actions(&self, state: &MAPFState) -> Arc<Vec<MAPFAction>> {
+
+        if state.special_state != No {
+            panic!("Invoked get_actions() on special state");
+        }
+
         let mut actions = Vec::new();
 
         for (a0_idx, vec_) in state.units_available.data.iter().enumerate() {
@@ -70,6 +73,11 @@ impl StateEnvironment<MAPFState, MAPFAction> for MAPFEnvironment {
     }
 
     fn next(&self, s: &MAPFState, a: &MAPFAction) -> MAPFState {
+
+        if s.special_state != No {
+            panic!("Invoked next() on special state");
+        }
+
         match a {
             Commit => {
                 let mut next_starting_pos = s.units_available.xor(&s.units_moved);
@@ -80,6 +88,7 @@ impl StateEnvironment<MAPFState, MAPFAction> for MAPFEnvironment {
                     units_available: next_starting_pos,
                     units_moved: SparseMatrix2D::new_by_shape(self.definition.shape),
                     playing: if s.playing == 1 { 2 } else { 1 },
+                    special_state: No,
                 }
             }
             Move(stage1, stage2) => {
@@ -95,12 +104,18 @@ impl StateEnvironment<MAPFState, MAPFAction> for MAPFEnvironment {
                     units_available: stage1_positions,
                     units_moved: stage2_positions,
                     playing: s.playing,
+                    special_state: No,
                 }
             }
         }
     }
 
     fn get_status(&self, s: &MAPFState) -> StateStatus {
+
+        if s.special_state != No {
+            panic!("Invoked get_status on special state")
+        }
+
         if s.units_moved.get_nnz_sum() != 0 {
             // If we're in the middle of a turn, the game is still running
             return StateStatus::Running;
@@ -145,6 +160,7 @@ impl StateEnvironment<MAPFState, MAPFAction> for MAPFEnvironment {
 
         StateStatus::Running
     }
+
 }
 
 impl fmt::Display for MAPFEnvironment {
@@ -196,8 +212,23 @@ impl fmt::Display for MAPFEnvironment {
     }
 }
 
+#[derive(Error, Debug)]
+pub enum MAPFErrorLoad {
+    #[error("Empty grid")]
+    EmptyGrid,
+
+    #[error("No Such file")]
+    NoSuchFile(#[from] io::Error),
+
+    #[error("Inconsistent grid at {0}")]
+    InconsistentGrid(usize),
+
+    #[error("Invalid character '{0}' at {1}, {2}")]
+    InvalidCharacter(char, usize, usize)
+}
+
 impl MAPFEnvironment {
-    pub fn new_from_file<P: AsRef<Path>>(path: P) -> Result<Self, Box<dyn Error>> {
+    pub fn new_from_file<P: AsRef<Path>>(path: P) -> Result<Self, MAPFErrorLoad> {
         let content = fs::read_to_string(path)?;
         let mut obstacles_data: Vec<Option<Vec<u8>>> = Vec::new();
         let mut starting_data: Vec<Option<Vec<u8>>> = Vec::new();
@@ -210,7 +241,7 @@ impl MAPFEnvironment {
             .collect();
 
         if lines.is_empty() {
-            return Err(Box::new(ParseGridError("Empty grid".to_string())));
+            return Err(EmptyGrid);
         }
 
         let a1_length = lines[0].len();
@@ -218,10 +249,7 @@ impl MAPFEnvironment {
 
         for (y, line) in lines.iter().enumerate() {
             if line.len() != a1_length {
-                return Err(Box::new(ParseGridError(format!(
-                    "Inconsistent row width at line {}",
-                    y
-                ))));
+                return Err(InconsistentGrid(line.len()));
             }
 
             let mut obstacle_row = vec![0u8; a1_length];
@@ -248,10 +276,7 @@ impl MAPFEnvironment {
                         has_goals = true;
                     }
                     _ => {
-                        return Err(Box::new(ParseGridError(format!(
-                            "Invalid character '{}' at ({},{})",
-                            ch, x, y
-                        ))));
+                        return Err(InvalidCharacter(ch, x, y));
                     }
                 }
             }
@@ -295,6 +320,19 @@ impl MAPFEnvironment {
                 goals_num: goals_by_player,
             }),
         })
+    }
+}
+
+impl MAPFEnvironment {
+    pub fn get_any_goal_state(&self) -> MAPFState{
+        MAPFState{
+            definition: self.definition.clone(),
+            units_begin: SparseMatrix2D::new_by_shape(self.definition.shape),
+            units_available: SparseMatrix2D::new_by_shape(self.definition.shape),
+            special_state: AnyGoal,
+            playing: 0,
+            units_moved: SparseMatrix2D::new_by_shape(self.definition.shape)
+        }
     }
 }
 

@@ -1,9 +1,13 @@
 [package]
 name = "mapf"
 version = "0.1.0"
-edition = "2021"
-rust-version = "1.81.0"
+edition = "2024"
+rust-version = "1.85.0"
 
 [dependencies]
-derive_more = { version = "2.0.1", default-features = false, features = ["display"] }
+caboose = "0.0.1"
+derive_more = { version = "2.0.1", default-features = false, features = ["display", "add", "mul"] }
+ordered-float = "5.0.0"
 rand = "0.9.1"
+thiserror = "2.0.12"
+tuple = "0.5.2"
